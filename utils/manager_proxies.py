@@ -1,88 +1,82 @@
-from filemanager import FileManager
 import random
+from .filemanager import FileManager
 
-class ProxieManager:
+class ProxyManager:
     """
-    Manter sempre a proxie que está funcionando ativa, caso pare de funcionar vai para zona proxy inativa
+    Manages proxies, keeping active proxies in use and deactivating failed ones.
     """
-    def __init__(self) -> None:
+    def __init__(self, proxy_file_path='Webshare 100 proxies.txt') -> None:
         self.filemanager = FileManager()
-        self.lista_proxies = self.__get_proxie_list()
-        self.proxie = self.__format_proxy_to_playwright(random.choice(self.lista_proxies))
-        self.path_proxie_txt = r'Webshare 100 proxies.txt' # INSIRA SEU TXT COM PROXIE AQ
-    
+        self.proxy_file_path = proxy_file_path
+        self.proxy_list = self._load_proxy_list()
+        self.current_proxy = self._format_proxy_for_playwright(random.choice(self.proxy_list))
+
     def get_proxy(self):
-        return self.__format_proxy_to_playwright(self.proxie)
+        """Returns the current proxy formatted for Playwright."""
+        return self._format_proxy_for_playwright(self.current_proxy)
 
     def generate_proxy(self):
-        """
-        Take new Proxie that is Status 1 or doesn't get test
-        """      
+        """Generates a new active proxy formatted for requests."""
         while True:
-            proxie = random.choice(self.lista_proxies)
-            if self.__check_status_proxy(proxie):
-                self.proxie = proxie 
-                return self.__format_proxy_to_requests(proxie)
-        
-    def mark_proxy_as_sucessful(self,proxy):
-        chave = 'server'
-        valor = proxy['server']
-        pos = self.__find_pos_proxy(chave,valor)
-        self.lista_proxies[pos].update({'Status':1})
+            proxy = random.choice(self.proxy_list)
+            if self._is_proxy_active(proxy):
+                self.current_proxy = proxy
+                return self._format_proxy_for_requests(proxy)
 
-    def mark_proxy_as_failed(self,proxy):
-        chave = 'server'
-        valor = proxy['server']
-        pos = self.__find_pos_proxy(chave,valor)
-        self.lista_proxies[pos].update({'Status':0})
-        self.proxie.update({'Status':0})
-    
-    
-    def __get_proxie_list(self):
-        proxies = self.filemanager.read_file(self.path_proxie_txt)
-        lista_proxies = proxies.strip().split('\n')
-        lista_final_proxy = []
-        for pos,proxie in enumerate(lista_proxies):
-            proxie = proxie.split(':')
-            ip = proxie[0]
-            port = proxie[1]
-            username = proxie[2]
-            password = proxie[3]
-            dict_proxie = {'pos':pos,
-                            'server':f'http://{ip}:{port}',
-                            'ip':ip,
-                            'port':port,
-                            'username':username,
-                            'password':password}
-            lista_final_proxy.append(dict_proxie)
+    def mark_proxy_as_successful(self, proxy):
+        """Marks the given proxy as successful."""
+        pos = self._find_proxy_position('server', proxy['server'])
+        if pos is not None:
+            self.proxy_list[pos]['Status'] = 1
 
-        self.lista_proxies = lista_final_proxy
-        return lista_final_proxy
+    def mark_proxy_as_failed(self, proxy):
+        """Marks the given proxy as failed."""
+        pos = self._find_proxy_position('server', proxy['server'])
+        if pos is not None:
+            self.proxy_list[pos]['Status'] = 0
+            self.current_proxy['Status'] = 0
 
-    def __check_status_proxy(self,proxy):
-        # Casos: Com Status(1 ou 0) e Sem Status
-        if 'Status' in proxy.keys():
-            if proxy['Status'] == 0:
-                return False
-        else:
-            return True
-    
-    def __find_pos_proxy(self,chave,valor):
-        return next((pos for pos,item in enumerate(self.lista_proxies) if item.get(chave) == valor), None)
+    def _load_proxy_list(self):
+        """Loads the proxy list from the file."""
+        proxies = self.filemanager.read_file(self.proxy_file_path).strip().split('\n')
+        proxy_list = []
+        for pos, proxy in enumerate(proxies):
+            ip, port, username, password = proxy.split(':')
+            proxy_dict = {
+                'pos': pos,
+                'server': f'http://{ip}:{port}',
+                'ip': ip,
+                'port': port,
+                'username': username,
+                'password': password
+            }
+            proxy_list.append(proxy_dict)
+        return proxy_list
 
-    def __format_proxy_to_playwright(self,proxy):
+    def _is_proxy_active(self, proxy):
+        """Checks if the proxy is active."""
+        return proxy.get('Status', 1) != 0
+
+    def _find_proxy_position(self, key, value):
+        """Finds the position of a proxy in the list by key and value."""
+        return next((pos for pos, item in enumerate(self.proxy_list) if item.get(key) == value), None)
+
+    def _format_proxy_for_playwright(self, proxy):
+        """Formats the proxy for Playwright."""
         return {
             'server': proxy['server'],
-            'username':proxy['username'],
-            'password':proxy['password']
+            'username': proxy['username'],
+            'password': proxy['password']
         }
-    
-    def __format_proxy_to_requests(self,proxy):
+
+    def _format_proxy_for_requests(self, proxy):
+        """Formats the proxy for requests."""
         ip = proxy['ip']
-        porta = proxy['port']
+        port = proxy['port']
         username = proxy['username']
         password = proxy['password']
-        return{
-            'http':rf'http://{username}:{password}@{ip}:{porta}',
-            'https':rf'http://{username}:{password}@{ip}:{porta}'
+        proxy_url = f'http://{username}:{password}@{ip}:{port}'
+        return {
+            'http': proxy_url,
+            'https': proxy_url
         }
